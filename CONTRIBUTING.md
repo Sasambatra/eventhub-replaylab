@@ -22,6 +22,10 @@ Return to the standard local topology with `python3 scripts/stack.py start`.
 For a separate empty-volume run, build the application image and run
 `.venv/bin/python scripts/fresh_check.py`; port 18100 must be free.
 
+The test lock intentionally excludes lock-generation tools. To work on dependency
+locks, use the separate `requirements-tools.lock`; it includes hash-pinned
+installer/build dependencies as well.
+
 Include regression checks for transaction boundaries, duplicate/conflicting
 requests, lease fencing or project authorization when changing those behaviours.
 Do not add tests that merely repeat a low-impact implementation detail. New

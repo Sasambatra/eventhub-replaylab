@@ -22,8 +22,8 @@ jobs:
       - name: Create isolated Python environment
         run: |
           python -m venv .venv
-          .venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.lock
           .venv/bin/python scripts/init_env.py
+          .venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.lock
       - name: Real database and broker tests
         run: |
           .venv/bin/python scripts/test_infra.py
@@ -34,4 +34,7 @@ jobs:
           .venv/bin/python scripts/fresh_check.py
       - name: Remove only runner-owned test infrastructure
         if: always()
-        run: docker compose -f compose.yaml -f compose.dev.yaml down --volumes --remove-orphans
+        run: |
+          if [ -f .env ]; then
+            docker compose -f compose.yaml -f compose.dev.yaml down --volumes --remove-orphans
+          fi
