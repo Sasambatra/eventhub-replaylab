@@ -31,5 +31,5 @@ capabilities or use their names, branding or market adoption as its own evidence
 - No artificial commit dates, invented production metrics or fabricated contributors.
 
 `assets/social-preview.png` is a prepared share image. Adding a file does not
-configure GitHub's custom social-preview setting; the README uses the matching
-SVG directly. The repository link remains the primary portfolio link.
+configure GitHub's custom social-preview setting. The matching SVG is kept as
+the editable source. The repository link remains the primary portfolio link.
