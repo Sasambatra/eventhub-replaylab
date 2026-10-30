@@ -1,0 +1,27 @@
+name: Reproducible bug
+description: Report a problem using synthetic data only
+title: "Bug: "
+body:
+  - type: markdown
+    attributes:
+      value: "Do not paste keys, .env contents, customer data or database dumps. Security issue? Use the repository's private vulnerability report."
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal sanitized case or command.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and observed behaviour
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and version
+      placeholder: "Linux/WSL, Docker/Compose versions, commit SHA"
+    validations:
+      required: true

@@ -1,0 +1,5 @@
+# Separate project/volumes: used only by scripts/fresh_check.py.
+services:
+  api:
+    ports: !override ["127.0.0.1:18100:8100"]
+    volumes: !override [./.local/freshcheck:/app/.local]

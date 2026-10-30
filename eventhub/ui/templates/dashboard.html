@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="csrf-token" content="{{ csrf }}"><title>EventHub ReplayLab</title>
+<link rel="icon" href="/static/icon.svg"><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script></head>
+<body><div class="app-shell"><aside class="sidebar">
+<a class="brand" href="/"><span class="brandmark small">eh<span>↗</span></span><span>EventHub<small>REPLAYLAB</small></span></a>
+<div class="workspace"><span class="eyebrow">ПРОСТРАНСТВО</span><strong>{{ project.name }}</strong><span class="hint">{{ role }}</span></div>
+<nav aria-label="Разделы"><button class="nav-link active" data-view="overview" aria-current="page"><span>◈</span> Обзор</button>
+<button class="nav-link" data-view="events"><span>⇄</span> События</button><button class="nav-link" data-view="lab"><span>⌘</span> Лаборатория</button>
+<button class="nav-link" data-view="destinations"><span>◎</span> Получатели</button></nav>
+<div class="sidebar-bottom"><span class="live-dot"></span><span id="connection">Подключение…</span><p>Источник истины — журнал событий.</p>
+<button id="logout" class="text-button">Выйти из пространства ↗</button></div></aside>
+<main class="main"><header class="topbar"><div><span class="eyebrow">EVENT OPERATIONS</span><span class="breadcrumb" id="breadcrumb">Обзор пространства</span></div>
+<span class="tag blue">LOCAL DEMO</span></header>
+<div id="global-message" class="notice" role="status" hidden></div>
+<section id="view-overview"><div class="page-heading"><div><span class="eyebrow">EVERY EVENT. EXPLAINED.</span><h1>События под контролем<span>.</span></h1>
+<p>От первого приёма до проверенного результата — одна история.</p></div><button class="button primary" data-goto="lab">Открыть лабораторию ↗</button></div>
+<div class="stats" id="stats" aria-live="polite"></div>
+<div class="overview-grid"><section class="panel"><div class="panel-heading"><h2>Последние события</h2><button class="text-button" data-goto="events">Все события →</button></div>
+<div id="recent-events"></div></section><section class="panel signal-panel"><span class="eyebrow">DELIVERY SIGNAL</span><h2>Доставка и результат</h2><div id="delivery-signal"></div>
+<div class="legend-note"><strong>HTTP accepted</strong><p>Получатель принял запрос.</p><strong>Business verified</strong><p>Тестовые данные проверены по ожидаемым правилам.</p></div></section></div>
+<section class="lab-banner"><div><span class="eyebrow">A CONTROLLED FAILURE IS A USEFUL ONE.</span><h2>Один инцидент. Две версии. Проверяемый вывод.</h2><p>Переставьте сообщения или потеряйте ответ после сохранения. Сравните, что произошло у получателей A и B.</p></div><button class="button light" data-goto="lab">Воспроизвести сбой →</button></section></section>
+<section id="view-events" hidden><div class="page-heading"><div><span class="eyebrow">EVENT JOURNAL</span><h1>История событий<span>.</span></h1><p>Сохранённые сообщения, получатели и каждая попытка доставки.</p></div></div>
+<div class="toolbar"><label for="event-search">Поиск</label><input id="event-search" placeholder="ID события, источник или объект" maxlength="100"><button id="refresh-events" class="button secondary">Обновить</button></div>
+<section class="panel"><div id="events-table"></div><div class="pagination"><button id="more-events" class="button secondary" hidden>Следующая страница →</button></div></section></section>
+<section id="view-lab" hidden><div class="page-heading"><div><span class="eyebrow">INCIDENT REPLAY</span><h1>Сбой, который можно повторить<span>.</span></h1><p>Одинаковые входы. Изолированные данные. Наблюдаемые различия.</p></div>
+<label class="button secondary file-button">Импорт сценария<input id="import-case" type="file" accept=".json,application/json" hidden></label></div>
+<div class="safety-note"><span>◇</span><p>Эксперименты используют только подготовленных получателей и тестовые данные. Реальные письма, оплаты и уведомления не отправляются.</p></div>
+<div id="cases" class="case-grid"></div><section class="panel"><div class="panel-heading"><h2>Запуски экспериментов</h2><span class="hint">A: контролируемая ошибка · B: исправление</span></div><div id="runs"></div></section></section>
+<section id="view-destinations" hidden><div class="page-heading"><div><span class="eyebrow">REGISTERED DESTINATIONS</span><h1>Куда идут события<span>.</span></h1><p>В этом стенде доступны два подготовленных HTTP-получателя.</p></div></div>
+<div id="destinations" class="case-grid"></div><section class="panel"><h2>Подключение приложения</h2><p>Источник отправляет CloudEvents в <code>POST /v1/events</code> с ограниченным ключом. Сетевой повтор сохраняет исходный event ID.</p><p class="hint">Состав ключей и областей прав доступен через защищённый API. Секреты получателей не показываются в панели.</p><a class="button secondary" href="/docs" target="_blank" rel="noopener">Документация API ↗</a></section></section>
+<footer class="main-footer"><span>EventHub ReplayLab</span><span>Повторы доставки возможны. Прикладной эффект проверяется отдельно.</span></footer>
+</main></div><dialog id="detail-dialog"><div class="dialog-heading"><h2 id="detail-title">Подробности</h2><button class="close-button" id="close-dialog" aria-label="Закрыть">×</button></div><div id="detail-content"></div></dialog>
+</body></html>

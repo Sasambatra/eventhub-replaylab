@@ -1,0 +1,166 @@
+name: eventhub-replaylab
+
+x-runtime: &runtime
+  build: .
+  image: eventhub-replaylab:local
+  restart: unless-stopped
+  user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+  read_only: true
+  tmpfs:
+    - /tmp:size=32m
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 384m
+  environment: &environment
+    APP_MODE: demo
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    DB_NAME: eventhub
+    DB_USER: eventhub
+    DB_PASSWORD: ${DB_PASSWORD:?Run init_env.py}
+    KEY_HASH_PEPPER: ${KEY_HASH_PEPPER}
+    SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY}
+    RABBITMQ_HOST: rabbitmq
+    RABBITMQ_PORT: "5672"
+    RABBITMQ_USER: eventhub
+    RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+    RABBITMQ_VHOST: eventhub
+    LAB_A_TOKEN: ${LAB_A_TOKEN}
+    LAB_B_TOKEN: ${LAB_B_TOKEN}
+    LAB_A_URL: http://receiver-a:8111
+    LAB_B_URL: http://receiver-b:8112
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel:4318/v1/traces
+    PYTHONDONTWRITEBYTECODE: "1"
+  networks: [core, lab]
+  depends_on:
+    postgres: {condition: service_healthy}
+    rabbitmq: {condition: service_healthy}
+
+services:
+  postgres:
+    image: postgres:18@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4
+    restart: unless-stopped
+    mem_limit: 384m
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_PASSWORD: ${DB_PASSWORD}
+      MIGRATION_PASSWORD: ${MIGRATION_PASSWORD}
+      LAB_A_DB_PASSWORD: ${LAB_A_DB_PASSWORD}
+      LAB_B_DB_PASSWORD: ${LAB_B_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./infra/init-db.sh:/docker-entrypoint-initdb.d/01-eventhub.sh:ro
+    networks: [core, lab]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4-management@sha256:af6f50d38098d8bd52fef7f3fa85015dd8b2bf6def58e995bf584ae9ba0f6407
+    restart: unless-stopped
+    hostname: eventhub-rabbit
+    mem_limit: 512m
+    environment:
+      RABBITMQ_DEFAULT_USER: eventhub
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: eventhub
+    volumes:
+      - rabbit-data:/var/lib/rabbitmq
+    networks: [core]
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  api:
+    <<: *runtime
+    networks: [front, core, lab]
+    command: [python, -m, eventhub, api, --host, 0.0.0.0, --port, "8100"]
+    ports: ["127.0.0.1:8100:8100"]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes: [./.local:/app/.local]
+
+  publisher:
+    <<: *runtime
+    command: [python, -m, eventhub, publisher]
+
+  worker:
+    <<: *runtime
+    command: [python, -m, eventhub, worker]
+
+  scheduler:
+    <<: *runtime
+    command: [python, -m, eventhub, scheduler]
+
+  replay-worker:
+    <<: *runtime
+    command: [python, -m, eventhub, replay-worker]
+
+  receiver-a:
+    <<: *runtime
+    environment:
+      LAB_VARIANT: A
+      LAB_TOKEN: ${LAB_A_TOKEN}
+      LAB_DB_HOST: postgres
+      LAB_DB_PORT: "5432"
+      LAB_DB_NAME: eventhub_lab_a
+      LAB_DB_USER: eventhub_lab_a
+      LAB_DB_PASSWORD: ${LAB_A_DB_PASSWORD}
+      PYTHONDONTWRITEBYTECODE: "1"
+    command: [python, -m, lab, --host, 0.0.0.0, --port, "8111"]
+    networks: [lab]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  receiver-b:
+    <<: *runtime
+    environment:
+      LAB_VARIANT: B
+      LAB_TOKEN: ${LAB_B_TOKEN}
+      LAB_DB_HOST: postgres
+      LAB_DB_PORT: "5432"
+      LAB_DB_NAME: eventhub_lab_b
+      LAB_DB_USER: eventhub_lab_b
+      LAB_DB_PASSWORD: ${LAB_B_DB_PASSWORD}
+      PYTHONDONTWRITEBYTECODE: "1"
+    command: [python, -m, lab, --host, 0.0.0.0, --port, "8112"]
+    networks: [lab]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  otel:
+    image: otel/opentelemetry-collector@sha256:28b6d41ac51bff6b41ba5e8fe503569ffb9d6a1ea90f7a78419e86f34e44f750
+    command: [--config=/etc/otelcol/config.yaml]
+    volumes: [./infra/otel.yaml:/etc/otelcol/config.yaml:ro]
+    networks: [core]
+    mem_limit: 128m
+
+  migrate:
+    <<: *runtime
+    profiles: [tools]
+    restart: "no"
+    environment:
+      <<: *environment
+      MIGRATION_PASSWORD: ${MIGRATION_PASSWORD}
+      LAB_A_DB_PASSWORD: ${LAB_A_DB_PASSWORD}
+      LAB_B_DB_PASSWORD: ${LAB_B_DB_PASSWORD}
+    command: [python, -m, eventhub, migrate]
+
+volumes:
+  postgres-data:
+  rabbit-data:
+
+networks:
+  front:
+  core:
+    internal: true
+  lab:
+    internal: true

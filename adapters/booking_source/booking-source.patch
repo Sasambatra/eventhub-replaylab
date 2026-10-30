@@ -1,0 +1,348 @@
+--- a/booking/models.py
++++ b/booking/models.py
+@@ -44,6 +44,7 @@
+ 
+     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+     request_key = models.UUIDField(unique=True, editable=False)
++    event_revision = models.PositiveIntegerField(default=0, editable=False)
+     customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+     service = models.ForeignKey(Service, on_delete=models.PROTECT)
+     employee = models.ForeignKey(Employee, on_delete=models.PROTECT)
+@@ -183,3 +184,22 @@
+     bot_id = models.PositiveBigIntegerField(primary_key=True)
+     next_update_id = models.PositiveBigIntegerField(default=0)
+     delivery_not_before = models.DateTimeField(default=timezone.now)
++
++
++class EventHubOutbox(models.Model):
++    """Minimal immutable snapshots; no customer names, contacts or prices."""
++    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
++    booking = models.ForeignKey(Booking, on_delete=models.PROTECT, related_name="eventhub_events")
++    payload = models.JSONField()
++    state = models.CharField(max_length=12, default="pending")
++    attempts = models.PositiveSmallIntegerField(default=0)
++    next_at = models.DateTimeField(default=timezone.now)
++    lease_token = models.UUIDField(null=True, editable=False)
++    lease_until = models.DateTimeField(null=True)
++    created_at = models.DateTimeField(default=timezone.now, editable=False)
++    sent_at = models.DateTimeField(null=True)
++    last_error = models.CharField(max_length=40, blank=True)
++
++    class Meta:
++        indexes = [models.Index(fields=["state", "next_at"], name="eventhub_outbox_due")]
++        constraints = [models.CheckConstraint(condition=Q(state__in=["pending", "accepted", "failed"]), name="eventhub_outbox_valid_state")]
+--- a/booking/services.py
++++ b/booking/services.py
+@@ -11,6 +11,7 @@
+ 
+ from booking.models import Booking, Employee, Payment, PaymentEvent, Service, TimeOff
+ from booking.telegram import queue_booking_event
++from booking.eventhub import queue_snapshot
+ 
+ 
+ def salon_zone():
+@@ -58,6 +59,7 @@
+     Payment.objects.filter(booking__in=expired, status=Payment.Status.PENDING).update(status=Payment.Status.EXPIRED, updated_at=now)
+     count = expired.update(status=Booking.Status.EXPIRED)
+     for booking in Booking.objects.filter(pk__in=expired_ids).select_related("customer", "payment"):
++        queue_snapshot(booking)
+         queue_booking_event(booking, "expired")
+     return count
+ 
+@@ -105,6 +107,7 @@
+                 price_rub=service.price_rub, hold_expires_at=now + timedelta(minutes=settings.BOOKING_HOLD_MINUTES),
+             )
+             Payment.objects.create(booking=booking, amount_rub=booking.price_rub)
++            queue_snapshot(booking)
+             queue_booking_event(booking, "reserved")
+             return booking
+     except (Employee.DoesNotExist, Service.DoesNotExist):
+@@ -146,6 +149,7 @@
+         booking.save(update_fields=["status", "cancelled_at"])
+         # Saving Payment separately can leave a cached reverse relation on Booking.
+         booking.payment = payment
++        queue_snapshot(booking)
+         queue_booking_event(booking, "confirmed" if outcome == "success" else "payment_failed")
+         return booking
+ 
+@@ -177,5 +181,6 @@
+         booking.status, booking.cancelled_at = Booking.Status.CANCELLED, now
+         booking.save(update_fields=["status", "cancelled_at"])
+         booking.payment = payment
++        queue_snapshot(booking)
+         queue_booking_event(booking, "cancelled")
+         return booking
+--- a/config/settings.py
++++ b/config/settings.py
+@@ -223,3 +223,9 @@
+     raise ImproperlyConfigured("Configure SMTP email before running with DJANGO_DEBUG=false.")
+ if not DEBUG and (not EMAIL_HOST or "example.test" in DEFAULT_FROM_EMAIL):
+     raise ImproperlyConfigured("Set EMAIL_HOST and a real DEFAULT_FROM_EMAIL before deployment.")
++
++# EventHub ReplayLab is optional and independent of Telegram and payments.
++EVENTHUB_ENABLED = os.environ.get("EVENTHUB_ENABLED", "false").lower() == "true"
++EVENTHUB_URL = os.environ.get("EVENTHUB_URL", "http://127.0.0.1:8100")
++EVENTHUB_SOURCE = os.environ.get("EVENTHUB_SOURCE", "urn:studio:booking")
++EVENTHUB_API_KEY = os.environ.get("EVENTHUB_API_KEY", "")
+--- /dev/null
++++ b/booking/eventhub.py
+@@ -0,0 +1,98 @@
++"""Optional EventHub snapshot outbox; network I/O stays outside booking transactions."""
++from datetime import timedelta
++import json
++import uuid
++from urllib.error import HTTPError, URLError
++from urllib.parse import urlsplit
++from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
++
++from django.conf import settings
++from django.core.exceptions import ImproperlyConfigured
++from django.db import transaction
++from django.db.models import Q
++from django.utils import timezone
++
++from booking.models import EventHubOutbox
++
++
++def queue_snapshot(booking):
++    if not transaction.get_connection().in_atomic_block:
++        raise RuntimeError("Snapshots must be written inside the booking transaction")
++    booking.event_revision += 1
++    booking.save(update_fields=["event_revision"])
++    if not settings.EVENTHUB_ENABLED:
++        return
++    event_id = uuid.uuid4()
++    EventHubOutbox.objects.create(
++        id=event_id, booking=booking,
++        payload={
++            "specversion": "1.0", "id": str(event_id), "source": settings.EVENTHUB_SOURCE,
++            "type": "studio.booking.snapshot.v1", "subject": f"booking/{booking.pk}",
++            "time": timezone.now().isoformat(), "datacontenttype": "application/json",
++            "data": {"booking_id": str(booking.pk), "revision": booking.event_revision, "status": booking.status},
++        },
++    )
++
++
++class NoRedirect(HTTPRedirectHandler):
++    def redirect_request(self, req, fp, code, msg, headers, newurl):
++        return None
++
++
++def send(packet):
++    url, key = settings.EVENTHUB_URL, settings.EVENTHUB_API_KEY
++    parsed = urlsplit(url)
++    local = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
++    if (parsed.scheme != "https" and not (local and parsed.scheme == "http")) or parsed.username or parsed.password or parsed.query or parsed.fragment or not key:
++        raise ImproperlyConfigured("EventHub requires HTTPS or a local HTTP endpoint and a private source key")
++    body = json.dumps(packet, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
++    opener = build_opener(ProxyHandler({}), NoRedirect())
++    request = Request(url.rstrip("/") + "/v1/events", data=body, headers={"Content-Type": "application/json", "Authorization": "Bearer " + key}, method="POST")
++    try:
++        with opener.open(request, timeout=10) as response:
++            return response.status, 0
++    except HTTPError as error:
++        value = error.headers.get("Retry-After", "0")
++        error.close()
++        return error.code, min(300, int(value)) if value.isdecimal() else 0
++    except (URLError, TimeoutError, OSError):
++        return None, 0
++
++
++def publish_batch(*, limit=50, sender=send):
++    if not settings.EVENTHUB_ENABLED:
++        return {"accepted": 0, "deferred": 0, "failed": 0}
++    counts = {"accepted": 0, "deferred": 0, "failed": 0}
++    for _ in range(limit):
++        current, token = timezone.now(), uuid.uuid4()
++        with transaction.atomic():
++            row = (EventHubOutbox.objects.select_for_update(skip_locked=True)
++                   .filter(state="pending", next_at__lte=current)
++                   .filter(Q(lease_until__isnull=True) | Q(lease_until__lte=current))
++                   .order_by("created_at", "pk").first())
++            if row is None:
++                break
++            row.lease_token, row.lease_until = token, current + timedelta(seconds=30)
++            row.attempts += 1
++            row.save(update_fields=["lease_token", "lease_until", "attempts"])
++            payload, row_id = row.payload, row.pk
++        # Neither booking rows nor outbox locks are held during HTTP.
++        status, retry_after = sender(payload)
++        with transaction.atomic():
++            row = EventHubOutbox.objects.select_for_update().get(pk=row_id)
++            if row.lease_token != token or row.lease_until <= timezone.now():
++                continue
++            row.lease_token = row.lease_until = None
++            if status in {200, 202}:
++                row.state, row.last_error = "accepted", ""
++                row.sent_at = timezone.now()
++                counts["accepted"] += 1
++            elif row.attempts >= 12 or (status is not None and status not in {408, 429} and status < 500):
++                row.state, row.last_error = "failed", f"http_{status}" if status else "retry_budget"
++                counts["failed"] += 1
++            else:
++                row.last_error = f"http_{status}" if status else "network"
++                row.next_at = timezone.now() + timedelta(seconds=max(retry_after, min(300, 2 ** row.attempts)))
++                counts["deferred"] += 1
++            row.save()
++    return counts
+--- /dev/null
++++ b/booking/management/commands/publish_eventhub.py
+@@ -0,0 +1,28 @@
++import json
++import time
++
++from django.conf import settings
++from django.core.management.base import BaseCommand, CommandError
++
++from booking.eventhub import publish_batch
++
++
++class Command(BaseCommand):
++    help = "Publish committed booking snapshots to the configured EventHub endpoint"
++
++    def add_arguments(self, parser):
++        parser.add_argument("--once", action="store_true")
++
++    def handle(self, *args, **options):
++        if not settings.EVENTHUB_ENABLED:
++            raise CommandError("EventHub is disabled. Configure the private source key and opt in first.")
++        try:
++            while True:
++                counts = publish_batch()
++                if options["once"] or any(counts.values()):
++                    self.stdout.write(json.dumps(counts))
++                if options["once"]:
++                    return
++                time.sleep(2)
++        except KeyboardInterrupt:
++            return
+--- /dev/null
++++ b/booking/migrations/0006_booking_event_revision_eventhuboutbox.py
+@@ -0,0 +1,41 @@
++# Generated by Django 5.2.18 on 2026-10-30 13:06
++
++import django.db.models.deletion
++import django.utils.timezone
++import uuid
++from django.db import migrations, models
++
++
++class Migration(migrations.Migration):
++
++    dependencies = [
++        ('booking', '0005_telegramcursor_telegramdelivery'),
++    ]
++
++    operations = [
++        migrations.AddField(
++            model_name='booking',
++            name='event_revision',
++            field=models.PositiveIntegerField(default=0, editable=False),
++        ),
++        migrations.CreateModel(
++            name='EventHubOutbox',
++            fields=[
++                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
++                ('payload', models.JSONField()),
++                ('state', models.CharField(default='pending', max_length=12)),
++                ('attempts', models.PositiveSmallIntegerField(default=0)),
++                ('next_at', models.DateTimeField(default=django.utils.timezone.now)),
++                ('lease_token', models.UUIDField(editable=False, null=True)),
++                ('lease_until', models.DateTimeField(null=True)),
++                ('created_at', models.DateTimeField(default=django.utils.timezone.now, editable=False)),
++                ('sent_at', models.DateTimeField(null=True)),
++                ('last_error', models.CharField(blank=True, max_length=40)),
++                ('booking', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='eventhub_events', to='booking.booking')),
++            ],
++            options={
++                'indexes': [models.Index(fields=['state', 'next_at'], name='eventhub_outbox_due')],
++                'constraints': [models.CheckConstraint(condition=models.Q(('state__in', ['pending', 'accepted', 'failed'])), name='eventhub_outbox_valid_state')],
++            },
++        ),
++    ]
+--- /dev/null
++++ b/booking/test_eventhub.py
+@@ -0,0 +1,83 @@
++"""Transactional source tests; only the opt-in live test makes HTTP requests."""
++from datetime import timedelta
++import os
++from unittest import skipUnless
++from unittest.mock import patch
++
++from django.db import transaction
++from django.test import TestCase, override_settings
++from django.utils import timezone
++
++from booking.eventhub import publish_batch, send
++from booking.models import Booking, EventHubOutbox
++from booking.services import cancel, expire_due_holds
++from booking.test_workflow import BookingData
++
++
++@override_settings(EVENTHUB_ENABLED=True, EVENTHUB_SOURCE="urn:studio:booking-test")
++class EventHubSourceTests(BookingData, TestCase):
++    def test_status_snapshots_are_minimal_monotonic_and_retries_stable(self):
++        booking = self.make_hold()
++        self.pay(booking)
++        cancel(booking_id=booking.pk, customer=self.user)
++        rows = list(EventHubOutbox.objects.order_by("created_at"))
++        self.assertEqual([r.payload["data"]["revision"] for r in rows], [1, 2, 3])
++        self.assertEqual([r.payload["data"]["status"] for r in rows], ["held", "confirmed", "cancelled"])
++        self.assertEqual(set(rows[0].payload["data"]), {"booking_id", "revision", "status"})
++        self.assertNotIn(self.user.email, str([r.payload for r in rows]))
++        seen = []
++        def lost(packet):
++            seen.append(packet)
++            return None, 0
++        self.assertEqual(publish_batch(sender=lost)["deferred"], 3)
++        EventHubOutbox.objects.update(next_at=timezone.now() - timedelta(seconds=1))
++        def accepted(packet):
++            self.assertIn(packet, seen)
++            return 200, 0
++        self.assertEqual(publish_batch(sender=accepted)["accepted"], 3)
++        self.assertEqual(publish_batch(sender=accepted)["accepted"], 0)
++
++    def test_transaction_rollback_does_not_leave_events(self):
++        with self.assertRaises(RuntimeError):
++            with transaction.atomic():
++                self.make_hold()
++                raise RuntimeError("roll back fake business operation")
++        self.assertEqual(EventHubOutbox.objects.count(), 0)
++        self.assertEqual(Booking.objects.count(), 0)
++
++    def test_expiry_queues_exactly_one_new_revision(self):
++        booking = self.make_hold()
++        Booking.objects.filter(pk=booking.pk).update(hold_expires_at=timezone.now() - timedelta(seconds=1))
++        expire_due_holds()
++        expire_due_holds()
++        self.assertEqual(list(EventHubOutbox.objects.order_by("created_at").values_list("payload__data__revision", flat=True)), [1, 2])
++        self.assertEqual(EventHubOutbox.objects.latest("created_at").payload["data"]["status"], "expired")
++
++    def test_permanent_conflict_stops_instead_of_retrying(self):
++        self.make_hold()
++        self.assertEqual(publish_batch(sender=lambda packet: (409, 0))["failed"], 1)
++        self.assertEqual(publish_batch(sender=lambda packet: (202, 0))["accepted"], 0)
++
++    def test_receiver_slow_response_does_not_hold_outbox_transaction(self):
++        self.make_hold()
++        def sender(packet):
++            row = EventHubOutbox.objects.get(pk=packet["id"])
++            self.assertIsNotNone(row.lease_token)
++            return 202, 0
++        self.assertEqual(publish_batch(sender=sender)["accepted"], 1)
++
++    @override_settings(EVENTHUB_ENABLED=False)
++    def test_disabled_integration_does_not_enqueue(self):
++        booking = self.make_hold()
++        booking.refresh_from_db()
++        self.assertEqual(booking.event_revision, 1)
++        self.assertEqual(EventHubOutbox.objects.count(), 0)
++
++    @skipUnless(os.environ.get("EVENTHUB_TEST_KEY"), "Live EventHub source key is not configured")
++    def test_real_http_source_round_trip(self):
++        with override_settings(EVENTHUB_API_KEY=os.environ["EVENTHUB_TEST_KEY"], EVENTHUB_URL="http://127.0.0.1:8100"):
++            booking = self.make_hold()
++            self.pay(booking)
++            cancel(booking_id=booking.pk, customer=self.user)
++            counts = publish_batch(sender=send)
++            self.assertEqual(counts, {"accepted": 3, "deferred": 0, "failed": 0})

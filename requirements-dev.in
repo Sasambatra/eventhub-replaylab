@@ -1,0 +1,6 @@
+-r requirements.in
+pytest>=8
+pytest-asyncio>=1
+hypothesis>=6
+ruff
+pip-tools==7.6.2

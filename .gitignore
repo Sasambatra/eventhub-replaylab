@@ -1,0 +1,22 @@
+.env
+.env.*
+!.env.example
+.venv/
+.local/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+*.dump
+*.key
+*.pem
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Local mentoring / approval history; implementation docs are in docs/.
+/IMPLEMENTATION_GUIDE_RU.md
+/docs/STATUS.md

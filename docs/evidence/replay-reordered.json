@@ -1,0 +1,58 @@
+{
+  "report_version": 1,
+  "variants": {
+    "A": {
+      "rules": [
+        {
+          "name": "Final status",
+          "actual": "confirmed",
+          "passed": false,
+          "expected": "cancelled"
+        },
+        {
+          "name": "Latest revision",
+          "actual": 2,
+          "passed": false,
+          "expected": 3
+        },
+        {
+          "name": "Duplicate effects",
+          "actual": 1,
+          "passed": false,
+          "expected": 0
+        }
+      ],
+      "result": "fail",
+      "applied_effects": 4
+    },
+    "B": {
+      "rules": [
+        {
+          "name": "Final status",
+          "actual": "cancelled",
+          "passed": true,
+          "expected": "cancelled"
+        },
+        {
+          "name": "Latest revision",
+          "actual": 3,
+          "passed": true,
+          "expected": 3
+        },
+        {
+          "name": "Duplicate effects",
+          "actual": 0,
+          "passed": true,
+          "expected": 0
+        }
+      ],
+      "result": "pass",
+      "applied_effects": 2
+    }
+  },
+  "expectations_met": true,
+  "case_checksum": "bbe0d12079167229bd63435f7a0462b708b56180333f1c378b6f6e420fba16d7",
+  "normalized_checksum": "92e36769b6bcf9e52607d7896693839b6e47f1e8a7e87010c240e9defd33b29d",
+  "scenario": "cancelled_booking_reordered",
+  "description": "Sanitized summary from an actual local HTTP replay; controlled A failure and corrected B pass."
+}

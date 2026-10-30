@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="csrf-token" content="{{ csrf }}"><title>Вход — EventHub ReplayLab</title>
+<link rel="icon" href="/static/icon.svg"><link rel="stylesheet" href="/static/app.css"><script src="/static/login.js" defer></script></head>
+<body class="login-page"><main class="login-shell">
+<div class="brandmark" aria-hidden="true">eh<span>↗</span></div><span class="eyebrow">EVENTHUB / REPLAYLAB</span>
+<h1>Разобраться.<br>Воспроизвести.<br><em>Проверить.</em></h1>
+<p class="login-intro">Рабочее пространство для доставки событий и расследования сбоев интеграций.</p>
+<form id="login-form" class="login-card"><span class="tag blue">ЛОКАЛЬНЫЙ СТЕНД</span>
+<h2>Вход в рабочее пространство</h2><label for="access-key">Ключ доступа</label>
+<input id="access-key" type="password" autocomplete="off" required maxlength="200" placeholder="eh_…">
+<p class="hint">Приватный ключ владельца сохранён в <code>.local/owner-access.txt</code>. Вставляйте его только здесь.</p>
+<button class="button primary" type="submit">Открыть пространство <span>→</span></button>
+<p id="login-error" class="error" role="alert"></p></form>
+<footer>Изолированная лаборатория · подготовленные получатели · вымышленные данные</footer>
+</main></body></html>

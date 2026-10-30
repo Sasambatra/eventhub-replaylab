@@ -1,0 +1,37 @@
+{
+  "case_version": 1,
+  "name": "Ответ потерян после сохранения",
+  "description": "Получатель сохранил данные, но ответ пришёл слишком поздно. Повтор не должен создавать второй эффект.",
+  "seed": 42,
+  "start_time": "2026-10-29T12:00:00Z",
+  "events": [
+    {
+      "specversion": "1.0",
+      "id": "event-001",
+      "source": "urn:demo:haircut-studio",
+      "type": "studio.booking.snapshot.v1",
+      "subject": "booking/00000000-0000-4000-8000-000000000001",
+      "time": "2026-10-29T12:00:01+00:00",
+      "data": {
+        "booking_id": "00000000-0000-4000-8000-000000000001",
+        "revision": 1,
+        "status": "confirmed"
+      }
+    }
+  ],
+  "steps": [
+    {
+      "event_id": "event-001",
+      "fault": "commit_then_delay_response",
+      "fault_attempts": 1
+    }
+  ],
+  "expected": {
+    "status": "confirmed",
+    "revision": 1
+  },
+  "expected_variants": {
+    "A": "fail",
+    "B": "pass"
+  }
+}

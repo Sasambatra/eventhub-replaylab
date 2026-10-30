@@ -1,0 +1,14 @@
+services:
+  postgres:
+    ports: ["127.0.0.1:55432:5432"]
+    networks: [core, lab, dev]
+  rabbitmq:
+    ports: ["127.0.0.1:5673:5672"]
+    networks: [core, dev]
+  receiver-a:
+    ports: ["127.0.0.1:8111:8111"]
+  receiver-b:
+    ports: ["127.0.0.1:8112:8112"]
+
+networks:
+  dev:
