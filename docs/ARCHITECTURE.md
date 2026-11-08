@@ -1,5 +1,7 @@
 # Решения архитектуры
 
+**Русский** · [English](ARCHITECTURE.en.md)
+
 ## Граница подтверждения
 
 API возвращает 202 после commit Event+Delivery+DeliveryRun+Outbox. Уникальность

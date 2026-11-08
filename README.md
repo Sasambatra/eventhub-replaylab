@@ -5,7 +5,7 @@
 
 **Доставка событий и воспроизведение сбоев с проверкой результата на двух версиях обработчика.**
 
-[English](docs/README_EN.md) · [Демонстрация](docs/DEMO_RU.md) · [Архитектура](docs/ARCHITECTURE.md) · [Проверки](docs/VERIFICATION.md) · [MIT](LICENSE)
+**Русский** · [English](README.en.md) · [Документация RU / EN](docs/README.md) · [Демонстрация](docs/DEMO_RU.md) · [Архитектура](docs/ARCHITECTURE.md) · [Проверки](docs/VERIFICATION.md) · [MIT](LICENSE)
 
 Отменённая запись снова стала подтверждённой: старое сообщение пришло позже нового,
 а сетевой повтор применил действие ещё раз. EventHub сохраняет историю доставки;

@@ -1,5 +1,7 @@
 # API первой версии
 
+**Русский** · [English](API.en.md)
+
 Авторизация: `Authorization: Bearer <key>` или same-origin browser session.
 Ключи не помещают в URL. Для cookie-записей обязательны Origin и X-CSRF-Token.
 Документация схемы: локальный `/docs` и `/openapi.json`; реальные операции требуют прав.

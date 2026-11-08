@@ -1,5 +1,7 @@
 # Проверки, выполненные 30 октября 2026
 
+**Русский** · [English](VERIFICATION.en.md)
+
 Среда: Ubuntu/WSL2, Linux x86_64, Python 3.14.4 в .venv; контейнерный Python 3.14,
 PostgreSQL 18.6, RabbitMQ 4, OpenTelemetry Collector 0.164.0, Docker 29.1.3,
 Compose 2.40.3. На WSL доступно около 7.5 GiB RAM; параллельно работают другие
